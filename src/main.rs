@@ -5,7 +5,10 @@ use reqwest::Client;
 use tokio::runtime;
 
 // If download progress not shown (unnoticed due to internet connection too fast),
-// try increase REQ_IMAGE_SIZE to 1024, 2048, 4096 or accordingly ...
+// try increase REQ_IMAGE_SIZE to 1024, 2048 or between that accordingly, and
+// if setted large than that may cause slow down at `image::from_image_bytes`,
+// since on debug mode doing heavy itertaion is slow,
+// and since we don't use parallelize image converting operation in that case.
 const REQ_IMAGE_SIZE: usize = 512;
 
 fn main() {
@@ -71,7 +74,10 @@ impl EframeTokioApp {
         }
     }
 
-    async fn reqwest_get(url: impl Into<String>, handle: &FlowHandle) -> Result<FileType, IOError> {
+    async fn reqwest_image(
+        url: impl Into<String>,
+        handle: &FlowHandle,
+    ) -> Result<FileType, IOError> {
         // Build a client
         let client = Client::builder()
             // Needed to set UA to get image file, otherwise reqwest error 403
@@ -98,7 +104,7 @@ impl EframeTokioApp {
                     }
 
                     // Send chunk size as download progress
-                    handle.send(a_chunk.len());
+                    handle.send_async(a_chunk.len()).await;
                     a_chunk.into_iter().for_each(|x| {
                         vec_u8.push(x);
                     });
@@ -125,7 +131,7 @@ impl EframeTokioApp {
         self.rt.spawn(async move {
             // Don't forget to activate flower here
             handle.activate();
-            let result = EframeTokioApp::reqwest_get(url, &handle).await;
+            let result = EframeTokioApp::reqwest_image(url, &handle).await;
             // And set result
             handle.set_result(result);
         });
