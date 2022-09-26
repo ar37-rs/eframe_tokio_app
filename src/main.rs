@@ -1,6 +1,8 @@
 use eframe::{egui, CreationContext};
 use egui_extras::RetainedImage;
 use flowync::{Flower, Handle, IntoResult, OIError};
+use reqwest::Client;
+use tokio::runtime;
 
 // If download progress not shown (unnoticed due to internet connection too fast),
 // try increase REQ_IMAGE_SIZE to 1024, 2048, 4096 or accordingly ...
@@ -10,7 +12,7 @@ fn main() {
     let mut options = eframe::NativeOptions::default();
     options.always_on_top = true;
     eframe::run_native(
-        "Download and show an image with eframe/egui",
+        "Eframe tokio integration",
         options,
         Box::new(|ctx| Box::new(EframeTokioApp::new(ctx))),
     );
@@ -60,7 +62,7 @@ type Flow = Flower<usize, Data>;
 type FlowHandle = Handle<usize, Data>;
 
 struct EframeTokioApp {
-    rt: tokio::runtime::Runtime,
+    rt: runtime::Runtime,
     flower: Flow,
     init: bool,
     fetching: bool,
@@ -72,7 +74,7 @@ struct EframeTokioApp {
 impl EframeTokioApp {
     fn new(_ctx: &CreationContext) -> Self {
         Self {
-            rt: tokio::runtime::Builder::new_multi_thread()
+            rt: runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .unwrap(),
@@ -87,7 +89,7 @@ impl EframeTokioApp {
 
     async fn reqwest_get(url: impl Into<String>, handle: &FlowHandle) -> Result<Data, OIError> {
         // Build a client
-        let client = reqwest::Client::builder()
+        let client = Client::builder()
             // Needed to set UA to get image file, otherwise reqwest error 403
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:105.0) Gecko/20100101")
             .build()?;
