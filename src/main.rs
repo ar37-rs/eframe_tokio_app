@@ -75,7 +75,7 @@ impl EframeTokioApp {
     }
 
     async fn reqwest_image(
-        url: impl Into<String>,
+        url: String,
         handle: &FlowHandle,
     ) -> Result<FileType, IOError> {
         // Build a client
