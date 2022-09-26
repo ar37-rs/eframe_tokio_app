@@ -18,21 +18,6 @@ fn main() {
     );
 }
 
-#[derive(Clone)]
-struct Data {
-    debug_name: String,
-    data: Vec<u8>,
-}
-
-impl Data {
-    fn new(debug_name: impl ToString, data: Vec<u8>) -> Self {
-        Self {
-            debug_name: debug_name.to_string(),
-            data,
-        }
-    }
-}
-
 #[derive(Default)]
 struct NetworkImage {
     pub image: Option<RetainedImage>,
@@ -41,12 +26,6 @@ struct NetworkImage {
 }
 
 impl NetworkImage {
-    fn reset(&mut self) {
-        self.error.take();
-        self.image.take();
-        self.file_size = 0;
-    }
-
     fn set_image(&mut self, image: RetainedImage) {
         self.image = Some(image);
         let _ = self.error.take();
@@ -54,20 +33,25 @@ impl NetworkImage {
 
     fn set_error(&mut self, error: impl ToString) {
         self.error = Some(error.to_string());
-        let _ = self.image.take();
     }
 }
 
-type Flow = Flower<usize, Data>;
-type FlowHandle = Handle<usize, Data>;
+#[allow(dead_code)]
+enum FileType {
+    Data(Vec<u8>),
+    Image(RetainedImage),
+}
+
+type Flow = Flower<usize, FileType>;
+type FlowHandle = Handle<usize, FileType>;
 
 struct EframeTokioApp {
     rt: runtime::Runtime,
     flower: Flow,
     init: bool,
-    fetching: bool,
     btn_label: String,
     net_image: NetworkImage,
+    tmp_file_size: usize,
     seed: usize,
 }
 
@@ -79,15 +63,15 @@ impl EframeTokioApp {
                 .build()
                 .unwrap(),
             flower: Flow::new(1),
-            fetching: true,
             init: true,
-            btn_label: "Fetching...".into(),
+            btn_label: "Cancel?".into(),
             net_image: Default::default(),
+            tmp_file_size: 0,
             seed: 1,
         }
     }
 
-    async fn reqwest_get(url: impl Into<String>, handle: &FlowHandle) -> Result<Data, IOError> {
+    async fn reqwest_get(url: impl Into<String>, handle: &FlowHandle) -> Result<FileType, IOError> {
         // Build a client
         let client = Client::builder()
             // Needed to set UA to get image file, otherwise reqwest error 403
@@ -104,10 +88,16 @@ impl EframeTokioApp {
 
         if content_type.contains("image/jpeg") || content_type.contains("image/png") {
             let url = response.url().to_string();
+            let cancelation_msg = "Fetching other image canceled.";
             let vec_u8 = {
                 let mut vec_u8 = Vec::new();
                 while let Some(a_chunk) = response.chunk().await? {
-                    // Send chunk size
+                    // Handle cancelation here
+                    if handle.should_cancel() {
+                        return Err(cancelation_msg.into());
+                    }
+
+                    // Send chunk size as download progress
                     handle.send(a_chunk.len());
                     a_chunk.into_iter().for_each(|x| {
                         vec_u8.push(x);
@@ -115,8 +105,16 @@ impl EframeTokioApp {
                 }
                 vec_u8
             };
-            let data = Data::new(url, vec_u8);
-            Ok(data)
+
+            let retained_image = RetainedImage::from_image_bytes(url, &vec_u8)?;
+
+            // And also handle cancelation here
+            if handle.should_cancel() {
+                return Err(cancelation_msg.into());
+            }
+
+            let file_type = FileType::Image(retained_image);
+            Ok(file_type)
         } else {
             Err(format!("Expected  image/jpeg png, found {}", content_type).into())
         }
@@ -125,8 +123,10 @@ impl EframeTokioApp {
     fn fetch_image(&self, url: String) {
         let handle = self.flower.handle();
         self.rt.spawn(async move {
+            // Don't forget to activate flower here
             handle.activate();
             let result = EframeTokioApp::reqwest_get(url, &handle).await;
+            // And set result
             handle.set_result(result);
         });
     }
@@ -143,24 +143,23 @@ impl eframe::App for EframeTokioApp {
             }
 
             if ui.button(&self.btn_label).clicked() {
-                if self.fetching {
-                    self.btn_label = "Wait, are still fetching...".into();
+                if self.flower.is_active() {
+                    self.flower.cancel();
                 } else {
+                    // Set error to None
+                    self.net_image.error.take();
+                    // Refetch other image
                     self.seed += 1;
-                    self.btn_label = "Fetching...".into();
-                    // Reset network image
-                    self.net_image.reset();
-                    // Refetch image
+                    self.btn_label = "Cancel?".into();
                     let url = format!(
                         "https://picsum.photos/seed/{}/{}",
                         self.seed, REQ_IMAGE_SIZE
                     );
                     self.fetch_image(url);
-                    self.fetching = true;
                 }
             }
 
-            if self.fetching {
+            if self.flower.is_active() {
                 // Request repaint to show progress.
                 ctx.request_repaint();
 
@@ -168,10 +167,10 @@ impl eframe::App for EframeTokioApp {
                     .extract(|channel| {
                         if let Some(b) = channel {
                             // Add Bytes to the image file size.
-                            self.net_image.file_size += b;
+                            self.tmp_file_size += b;
                         }
 
-                        let mut downloaded_size = self.net_image.file_size;
+                        let mut downloaded_size = self.tmp_file_size;
                         if downloaded_size > 0 {
                             // Convert current file size in Bytes to KB.
                             downloaded_size /= 1000;
@@ -183,25 +182,25 @@ impl eframe::App for EframeTokioApp {
                     })
                     .finalize(|result| {
                         match result {
-                            Ok(image_data) => {
-                                assert_eq!(self.net_image.file_size, image_data.data.len());
-                                // Convert final file size in Bytes to KB.
-                                self.net_image.file_size /= 1000;
-                                match RetainedImage::from_image_bytes(
-                                    image_data.debug_name,
-                                    &image_data.data,
-                                ) {
-                                    Ok(image) => {
-                                        self.net_image.set_image(image);
-                                    }
-                                    Err(err_msg) => self.net_image.set_error(err_msg),
+                            Ok(file_type) => {
+                                // Get FileType::Image since we only want retained image in this case.
+                                if let FileType::Image(retained_image) = file_type {
+                                    // Convert final file size in Bytes to KB.
+                                    self.tmp_file_size /= 1000;
+                                    self.net_image.set_image(retained_image);
+                                    self.net_image.file_size = self.tmp_file_size;
                                 }
                             }
                             Err(err_msg) => self.net_image.set_error(err_msg),
                         }
-                        self.fetching = false;
-                        self.btn_label = "Refetch image?".into();
+                        // Reset value if finalized
+                        self.btn_label = "Refetch other image?".into();
+                        self.tmp_file_size = 0;
                     });
+            }
+
+            if let Some(err_msg) = &self.net_image.error {
+                ui.colored_label(ui.visuals().error_fg_color, err_msg);
             }
 
             if let Some(image) = &self.net_image.image {
@@ -218,10 +217,6 @@ impl eframe::App for EframeTokioApp {
                     .show(ui, |ui| {
                         image.show_max_size(ui, image.size_vec2());
                     });
-            }
-
-            if let Some(err_msg) = &self.net_image.error {
-                ui.colored_label(ui.visuals().error_fg_color, err_msg);
             }
         });
     }
