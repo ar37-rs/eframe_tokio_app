@@ -83,7 +83,7 @@ impl EframeTokioApp {
             // Needed to set UA to get image file, otherwise reqwest error 403
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:105.0) Gecko/20100101")
             .build()?;
-        let mut response = client.get(url.into()).send().await?;
+        let mut response = client.get(url).send().await?;
 
         // Get Content-Type
         let content_type = response
