@@ -1,6 +1,6 @@
 use eframe::{egui, CreationContext};
 use egui_extras::RetainedImage;
-use flowync::{Flower, Handle, IntoResult, OIError};
+use flowync::{Flower, Handle, IOError, IntoResult};
 use reqwest::Client;
 use tokio::runtime;
 
@@ -12,7 +12,7 @@ fn main() {
     let mut options = eframe::NativeOptions::default();
     options.always_on_top = true;
     eframe::run_native(
-        "Eframe tokio integration",
+        "Download and show an image with eframe/egui",
         options,
         Box::new(|ctx| Box::new(EframeTokioApp::new(ctx))),
     );
@@ -87,7 +87,7 @@ impl EframeTokioApp {
         }
     }
 
-    async fn reqwest_get(url: impl Into<String>, handle: &FlowHandle) -> Result<Data, OIError> {
+    async fn reqwest_get(url: impl Into<String>, handle: &FlowHandle) -> Result<Data, IOError> {
         // Build a client
         let client = Client::builder()
             // Needed to set UA to get image file, otherwise reqwest error 403
@@ -126,10 +126,8 @@ impl EframeTokioApp {
         let handle = self.flower.handle();
         self.rt.spawn(async move {
             handle.activate();
-            match EframeTokioApp::reqwest_get(url, &handle).await {
-                Ok(data) => handle.success(data),
-                Err(e) => handle.error(e),
-            }
+            let result = EframeTokioApp::reqwest_get(url, &handle).await;
+            handle.set_result(result);
         });
     }
 }
