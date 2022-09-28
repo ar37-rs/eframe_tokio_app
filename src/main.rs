@@ -9,7 +9,7 @@ use tokio::runtime;
 // if setted large than that may cause slow down at `image::from_image_bytes`,
 // since on debug mode doing heavy itertaion is slow,
 // and since we don't use parallelize image converting operation in that case.
-const REQ_IMAGE_SIZE: usize = 512;
+const REQ_IMAGE_SIZE: usize = 2048;
 
 fn main() {
     let mut options = eframe::NativeOptions::default();
@@ -74,10 +74,7 @@ impl EframeTokioApp {
         }
     }
 
-    async fn reqwest_image(
-        url: String,
-        handle: &FlowHandle,
-    ) -> Result<FileType, IOError> {
+    async fn reqwest_image(url: String, handle: &FlowHandle) -> Result<FileType, IOError> {
         // Build a client
         let client = Client::builder()
             // Needed to set UA to get image file, otherwise reqwest error 403
@@ -170,21 +167,22 @@ impl eframe::App for EframeTokioApp {
                 ctx.request_repaint();
 
                 self.flower
-                    .extract(|channel| {
+                    .poll(|channel| {
                         if let Some(b) = channel {
                             // Add Bytes to the image file size.
                             self.tmp_file_size += b;
                         }
 
-                        let mut downloaded_size = self.tmp_file_size;
-                        if downloaded_size > 0 {
-                            // Convert current file size in Bytes to KB.
-                            downloaded_size /= 1000;
-                            // Show downloaded file size.
-                            ui.label(format!("Downloaded size: {} KB", downloaded_size));
-                        } else {
+                        ui.horizontal(|ui| {
                             ui.spinner();
-                        }
+                            let mut downloaded_size = self.tmp_file_size;
+                            if downloaded_size > 0 {
+                                // Convert current file size in Bytes to KB.
+                                downloaded_size /= 1000;
+                                // Show downloaded file size.
+                                ui.label(format!("Downloaded size: {} KB", downloaded_size));
+                            }
+                        });
                     })
                     .finalize(|result| {
                         match result {

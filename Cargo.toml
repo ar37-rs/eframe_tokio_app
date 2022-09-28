@@ -1,6 +1,6 @@
 [package]
 name = "eframe_tokio_app"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.61.0"
 authors = ["Ar37-rs <adyaro37@gmail.com>"]
@@ -12,7 +12,7 @@ publish = false
 # egui_extras = { path = "../egui/crates/egui_extras", features = ["image"] }
 eframe = "0.19"
 egui_extras = { version = "0.19", features = ["image"] }
-flowync = { version = "4.6.0" }
+flowync = { version = "4.8.0" }
 image = { version = "0.24", default-features = false, features = [
     "jpeg",
     "png",
