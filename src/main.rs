@@ -133,8 +133,8 @@ impl EframeTokioApp {
                 return Err(cancelation_msg.into());
             }
 
-            let file_type = Finalize::Image(retained_image);
-            Ok(file_type)
+            let finalize = Finalize::Image(retained_image);
+            Ok(finalize)
         } else {
             Err(format!("Expected  image/jpeg png, found {}", content_type).into())
         }
@@ -183,6 +183,7 @@ impl eframe::App for EframeTokioApp {
                             }
                             Err(err_msg) => self.net_image.set_error(err_msg),
                         }
+                        
                         // Reset value if finalized
                         self.btn_label = "Refetch other image?".into();
                         self.tmp_file_size = 0;
