@@ -40,22 +40,29 @@ impl NetworkImage {
 }
 
 #[allow(dead_code)]
-enum FileType {
+enum Channel {
+    CountingStar(Vec<f64>),
+    ImageProgress(usize),
+}
+
+#[allow(dead_code)]
+enum Finalize {
     Data(Vec<u8>),
     Image(RetainedImage),
 }
 
-type Flow = Flower<usize, FileType>;
-type FlowHandle = Handle<usize, FileType>;
+type TypedFlower = Flower<Channel, Finalize>;
+type TypedFlowerHandle = Handle<Channel, Finalize>;
 
 struct EframeTokioApp {
     rt: runtime::Runtime,
-    flower: Flow,
+    flower: TypedFlower,
     init: bool,
     btn_label: String,
     net_image: NetworkImage,
     tmp_file_size: usize,
     seed: usize,
+    show_image_progress: bool,
 }
 
 impl EframeTokioApp {
@@ -65,16 +72,25 @@ impl EframeTokioApp {
                 .enable_all()
                 .build()
                 .unwrap(),
-            flower: Flow::new(1),
+            flower: TypedFlower::new(1),
             init: true,
             btn_label: "Cancel?".into(),
             net_image: Default::default(),
             tmp_file_size: 0,
             seed: 1,
+            show_image_progress: true,
         }
     }
 
-    async fn reqwest_image(url: String, handle: &FlowHandle) -> Result<FileType, IOError> {
+    fn show_init(&mut self) -> bool {
+        let init = self.init;
+        if self.init {
+            self.init = false;
+        }
+        init
+    }
+
+    async fn fetch_image(url: String, handle: &TypedFlowerHandle) -> Result<Finalize, IOError> {
         // Build a client
         let client = Client::builder()
             // Needed to set UA to get image file, otherwise reqwest error 403
@@ -101,7 +117,8 @@ impl EframeTokioApp {
                     }
 
                     // Send chunk size as download progress
-                    handle.send_async(a_chunk.len()).await;
+                    let progress = Channel::ImageProgress(a_chunk.len());
+                    handle.send_async(progress).await;
                     a_chunk.into_iter().for_each(|x| {
                         vec_u8.push(x);
                     });
@@ -116,19 +133,19 @@ impl EframeTokioApp {
                 return Err(cancelation_msg.into());
             }
 
-            let file_type = FileType::Image(retained_image);
+            let file_type = Finalize::Image(retained_image);
             Ok(file_type)
         } else {
             Err(format!("Expected  image/jpeg png, found {}", content_type).into())
         }
     }
 
-    fn fetch_image(&self, url: String) {
+    fn spawn_fetch_image(&self, url: String) {
         let handle = self.flower.handle();
         self.rt.spawn(async move {
             // Don't forget to activate flower here
             handle.activate();
-            let result = EframeTokioApp::reqwest_image(url, &handle).await;
+            let result = Self::fetch_image(url, &handle).await;
             // And set result
             handle.set_result(result);
         });
@@ -138,11 +155,39 @@ impl EframeTokioApp {
 impl eframe::App for EframeTokioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.init {
-                self.init = false;
+            if self.show_init() {
                 // Fetch image
                 let url = format!("https://picsum.photos/seed/1/{}", REQ_IMAGE_SIZE);
-                self.fetch_image(url);
+                self.spawn_fetch_image(url);
+                self.show_image_progress = true;
+            }
+
+            if self.flower.is_active() {
+                self.flower
+                    .extract(|channel| {
+                        // Get Channel::ImageProgress since we only want usize value in this case.
+                        if let Channel::ImageProgress(b) = channel {
+                            self.tmp_file_size += b;
+                        }
+                    })
+                    .finalize(|result| {
+                        match result {
+                            Ok(file_type) => {
+                                // Get FileType::Image since we only want retained image in this case.
+                                if let Finalize::Image(retained_image) = file_type {
+                                    // Convert final file size in Bytes to KB.
+                                    self.tmp_file_size /= 1000;
+                                    self.net_image.set_image(retained_image);
+                                    self.net_image.file_size = self.tmp_file_size;
+                                }
+                            }
+                            Err(err_msg) => self.net_image.set_error(err_msg),
+                        }
+                        // Reset value if finalized
+                        self.btn_label = "Refetch other image?".into();
+                        self.tmp_file_size = 0;
+                        self.show_image_progress = false;
+                    });
             }
 
             if ui.button(&self.btn_label).clicked() {
@@ -158,49 +203,23 @@ impl eframe::App for EframeTokioApp {
                         "https://picsum.photos/seed/{}/{}",
                         self.seed, REQ_IMAGE_SIZE
                     );
-                    self.fetch_image(url);
+                    self.spawn_fetch_image(url);
+                    self.show_image_progress = true;
                 }
             }
 
-            if self.flower.is_active() {
-                // Request repaint to show progress.
-                ctx.request_repaint();
-
-                self.flower
-                    .poll(|channel| {
-                        if let Some(b) = channel {
-                            // Add Bytes to the image file size.
-                            self.tmp_file_size += b;
-                        }
-
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            let mut downloaded_size = self.tmp_file_size;
-                            if downloaded_size > 0 {
-                                // Convert current file size in Bytes to KB.
-                                downloaded_size /= 1000;
-                                // Show downloaded file size.
-                                ui.label(format!("Downloaded size: {} KB", downloaded_size));
-                            }
-                        });
-                    })
-                    .finalize(|result| {
-                        match result {
-                            Ok(file_type) => {
-                                // Get FileType::Image since we only want retained image in this case.
-                                if let FileType::Image(retained_image) = file_type {
-                                    // Convert final file size in Bytes to KB.
-                                    self.tmp_file_size /= 1000;
-                                    self.net_image.set_image(retained_image);
-                                    self.net_image.file_size = self.tmp_file_size;
-                                }
-                            }
-                            Err(err_msg) => self.net_image.set_error(err_msg),
-                        }
-                        // Reset value if finalized
-                        self.btn_label = "Refetch other image?".into();
-                        self.tmp_file_size = 0;
-                    });
+            if self.show_image_progress {
+                ui.horizontal(|ui| {
+                    // We don't need to call repaint since we are using spinner here.
+                    ui.spinner();
+                    let mut downloaded_size = self.tmp_file_size;
+                    if downloaded_size > 0 {
+                        // Convert current file size in Bytes to KB.
+                        downloaded_size /= 1000;
+                        // Show downloaded file size.
+                        ui.label(format!("Downloaded size: {} KB", downloaded_size));
+                    }
+                });
             }
 
             if let Some(err_msg) = &self.net_image.error {
