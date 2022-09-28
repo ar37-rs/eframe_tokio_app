@@ -9,7 +9,7 @@ use tokio::runtime;
 // if setted large than that may cause slow down at `image::from_image_bytes`,
 // since on debug mode doing heavy itertaion is slow,
 // and since we don't use parallelize image converting operation in that case.
-const REQ_IMAGE_SIZE: usize = 2048;
+const REQ_IMAGE_SIZE: usize = 512;
 
 fn main() {
     let mut options = eframe::NativeOptions::default();
