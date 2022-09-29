@@ -1,6 +1,6 @@
 [package]
 name = "eframe_tokio_app"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.61.0"
 authors = ["Ar37-rs <adyaro37@gmail.com>"]
