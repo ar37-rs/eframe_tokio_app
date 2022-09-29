@@ -3,6 +3,8 @@ use egui_extras::RetainedImage;
 use flowync::{Flower, Handle, IOError, IntoResult};
 use reqwest::Client;
 use tokio::runtime;
+mod utils;
+use utils::{Container, Message, NetworkImage};
 
 const PPP: f32 = 1.25;
 
@@ -23,20 +25,6 @@ fn main() {
     );
 }
 
-#[allow(dead_code)]
-enum Message {
-    CountingStar(Vec<f64>),
-    ImageProgress(usize),
-    ImageError,
-    Default,
-}
-
-#[allow(dead_code)]
-enum Container {
-    Data(Vec<u8>),
-    Image(RetainedImage),
-}
-
 type TypedFlower = Flower<Message, Container>;
 type TypedFlowerHandle = Handle<Message, Container>;
 
@@ -49,37 +37,6 @@ struct EframeTokioApp {
     btn_label_next: String,
     net_image: NetworkImage,
     error_msg: Message,
-}
-
-#[derive(Default)]
-struct NetworkImage {
-    pub image: Option<RetainedImage>,
-    pub file_size: usize,
-    pub tmp_file_size: usize,
-    pub show_image_progress: bool,
-    pub error: Option<String>,
-    pub seed: usize,
-}
-
-impl NetworkImage {
-    fn set_image(&mut self, image: RetainedImage) {
-        self.error.take();
-        self.image = Some(image);
-    }
-
-    fn set_error(&mut self, e: impl ToString) {
-        self.error = Some(e.to_string());
-    }
-
-    fn repair(&mut self) {
-        // Convert final file size in Bytes to KB.
-        if self.tmp_file_size >= 1000 {
-            self.tmp_file_size /= 1000;
-            self.file_size = self.tmp_file_size;
-        }
-        self.show_image_progress = false;
-        self.tmp_file_size = 0;
-    }
 }
 
 impl EframeTokioApp {
