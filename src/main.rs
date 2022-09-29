@@ -11,7 +11,7 @@ const PPP: f32 = 1.25;
 // If download progress not shown (unnoticed due to internet connection too fast),
 // try increase REQ_IMAGE_SIZE to 1024, 2048 or between that accordingly, and
 // if setted large than that may cause slow down at `image::from_image_bytes`,
-// since on debug mode doing heavy itertaion is slow,
+// since we are on debug mode doing heavy iteraion is slow,
 // and since we don't use parallelize image converting operation in that case.
 const REQ_IMAGE_SIZE: usize = 512;
 
