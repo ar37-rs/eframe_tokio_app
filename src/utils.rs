@@ -2,7 +2,8 @@ use egui_extras::RetainedImage;
 
 #[allow(dead_code)]
 pub enum Message {
-    CountingStar(Vec<f64>),
+    DataProgress(usize),
+    DataError,
     ImageProgress(usize),
     ImageError,
     Default,

@@ -81,10 +81,10 @@ impl EframeTokioApp {
             .to_str()?;
 
         if content_type.contains("image/jpeg") || content_type.contains("image/png") {
-            let url = response.url().to_string();
+            let debug_name = response.url().to_string();
             let cancelation_msg = "Fetching image canceled.";
-            let vec_u8 = {
-                let mut vec_u8 = Vec::new();
+            let mut image_bytes = Vec::new();
+            {
                 while let Some(a_chunk) = response.chunk().await? {
                     // Handle cancelation here
                     if handle.should_cancel() {
@@ -95,13 +95,12 @@ impl EframeTokioApp {
                     let progress = Message::ImageProgress(a_chunk.len());
                     handle.send_async(progress).await;
                     a_chunk.into_iter().for_each(|x| {
-                        vec_u8.push(x);
+                        image_bytes.push(x);
                     });
                 }
-                vec_u8
-            };
+            }
 
-            let retained_image = RetainedImage::from_image_bytes(url, &vec_u8)?;
+            let retained_image = RetainedImage::from_image_bytes(debug_name, &image_bytes)?;
 
             // And also handle cancelation here
             if handle.should_cancel() {
@@ -122,6 +121,7 @@ impl EframeTokioApp {
         self.net_image.show_image_progress = true;
         // Get flower handle
         let handle = self.flower.handle();
+        // Spawn tokio runtime.
         self.rt.spawn(async move {
             // Don't forget to activate flower here
             handle.activate();
@@ -137,6 +137,7 @@ impl EframeTokioApp {
     }
 
     fn reset_fetch_image(&mut self) {
+        // Handle logical accordingly
         self.net_image.repair();
         if self.next_image && self.flower.is_canceled() {
             if self.net_image.seed > 1 {
@@ -159,7 +160,7 @@ impl eframe::App for EframeTokioApp {
             if self.show_init() {
                 // Fetch image
                 self.net_image.seed = 1;
-                let url = format!("https://picsum.photos/seed/1/{}", REQ_IMAGE_SIZE);
+                let url = format!("https://picsuxxm.photos/seed/1/{}", REQ_IMAGE_SIZE);
                 self.spawn_fetch_image(url);
             }
 
@@ -167,29 +168,39 @@ impl eframe::App for EframeTokioApp {
                 let mut fetch_image_finalized = false;
                 self.flower
                     .extract(|message| {
-                        if let Message::ImageProgress(b) = message {
-                            self.net_image.tmp_file_size += b;
-                        } else if let Message::CountingStar(_) = message {
-                            // Do stuff here if message
-                        } else {
-                            // Set the error message if any.
-                            self.error_msg = message;
+                        match message {
+                            Message::ImageProgress(b) => {
+                                self.net_image.tmp_file_size += b;
+                            }
+                            Message::DataProgress(_) => {
+                                // Do stuff here if any
+                            }
+                            _ => {
+                                // Set the error message if any.
+                                self.error_msg = message;
+                            }
                         }
                     })
                     .finalize(|result| {
                         match result {
-                            Ok(container) => {
-                                // Get Container::Image since we only want retained image in this case.
-                                if let Container::Image(retained_image) = container {
-                                    self.net_image.set_image(retained_image);
-                                    fetch_image_finalized = true;
-                                }
+                            // Get Container::Image since we only want retained image in this case.
+                            Ok(Container::Image(retained_image)) => {
+                                self.net_image.set_image(retained_image);
+                                fetch_image_finalized = true;
                             }
+                            // Handle if any
+                            Ok(Container::Data(_data)) => {}
                             Err(err) => {
                                 // Get specific error message.
-                                if let Message::ImageError = self.error_msg {
-                                    self.net_image.set_error(err);
-                                    fetch_image_finalized = true;
+                                match self.error_msg {
+                                    Message::ImageError => {
+                                        self.net_image.set_error(err);
+                                        fetch_image_finalized = true;
+                                    }
+                                    Message::DataError => {
+                                        // Handle DataError if any.
+                                    }
+                                    _ => eprintln!("{}", err),
                                 }
                             }
                         }
