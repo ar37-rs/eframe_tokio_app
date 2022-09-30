@@ -1,6 +1,9 @@
 use eframe::{egui, CreationContext};
 use egui_extras::RetainedImage;
-use flowync::{Flower, Handle, IOError, IntoResult};
+use flowync::{
+    error::{Cause, IOError},
+    Flower, Handle, IntoResult,
+};
 use reqwest::Client;
 use tokio::runtime;
 mod utils;
@@ -66,6 +69,9 @@ impl EframeTokioApp {
     }
 
     async fn fetch_image(url: String, handle: &TypedFlowerHandle) -> Result<Container, IOError> {
+        // Runtime panic just for testing in case.
+        // panic!("Unexpected panic at the neighbor yard!");
+
         // Build a client
         let client = Client::builder()
             // Needed to set UA to get image file, otherwise reqwest error 403
@@ -190,7 +196,7 @@ impl eframe::App for EframeTokioApp {
                             }
                             // Handle if any
                             Ok(Container::Data(_data)) => {}
-                            Err(err) => {
+                            Err(Cause::Suppose(err)) => {
                                 // Get specific error message.
                                 match self.error_msg {
                                     Message::ImageError => {
@@ -200,8 +206,13 @@ impl eframe::App for EframeTokioApp {
                                     Message::DataError => {
                                         // Handle DataError if any.
                                     }
-                                    _ => eprintln!("{}", err),
+                                    _ => (),
                                 }
+                            }
+                            // Handle stuff in tokio runtime panicked as well.
+                            Err(Cause::Panicked(err)) => {
+                                self.net_image.set_error(err);
+                                fetch_image_finalized = true;
                             }
                         }
 
