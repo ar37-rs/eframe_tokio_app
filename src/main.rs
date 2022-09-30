@@ -209,7 +209,7 @@ impl eframe::App for EframeTokioApp {
                                     _ => (),
                                 }
                             }
-                            // Handle stuff in tokio runtime panicked as well.
+                            // Handle stuff if tokio runtime panicked as well.
                             Err(Cause::Panicked(err)) => {
                                 self.net_image.set_error(err);
                                 fetch_image_finalized = true;
