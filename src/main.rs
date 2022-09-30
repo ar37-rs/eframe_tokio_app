@@ -160,7 +160,7 @@ impl eframe::App for EframeTokioApp {
             if self.show_init() {
                 // Fetch image
                 self.net_image.seed = 1;
-                let url = format!("https://picsuxxm.photos/seed/1/{}", REQ_IMAGE_SIZE);
+                let url = format!("https://picsum.photos/seed/1/{}", REQ_IMAGE_SIZE);
                 self.spawn_fetch_image(url);
             }
 
