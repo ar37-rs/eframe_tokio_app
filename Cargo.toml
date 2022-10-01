@@ -12,7 +12,7 @@ publish = false
 # egui_extras = { path = "../egui/crates/egui_extras", features = ["image"] }
 eframe = "0.19"
 egui_extras = { version = "0.19", features = ["image"] }
-flowync = { version = "5.0.0" }
+flowync = { version = "5.1.0" }
 image = { version = "0.24", default-features = false, features = [
     "jpeg",
     "png",
