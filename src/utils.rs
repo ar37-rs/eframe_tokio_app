@@ -1,12 +1,14 @@
 use egui_extras::RetainedImage;
+#[allow(dead_code)]
+pub enum Channel {
+    Data(usize),
+    Image(usize),
+}
 
 #[allow(dead_code)]
-pub enum Message {
-    DataProgress(usize),
-    DataError,
-    ImageProgress(usize),
-    ImageError,
-    Default,
+pub enum ErrCause {
+    Data(String),
+    Image(String),
 }
 
 #[allow(dead_code)]

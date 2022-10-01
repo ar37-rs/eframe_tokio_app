@@ -1,13 +1,13 @@
 use eframe::{egui, CreationContext};
 use egui_extras::RetainedImage;
 use flowync::{
-    error::{Cause, IOError},
-    Flower, Handle, IntoResult,
+    error::{Compact, IOError},
+    CompactFlower, CompactHandle, IntoResult,
 };
 use reqwest::Client;
 use tokio::runtime;
 mod utils;
-use utils::{Container, Message, NetworkImage};
+use utils::{Channel, Container, ErrCause, NetworkImage};
 
 const PPP: f32 = 1.25;
 
@@ -28,8 +28,8 @@ fn main() {
     );
 }
 
-type TypedFlower = Flower<Message, Container>;
-type TypedFlowerHandle = Handle<Message, Container>;
+type TypedFlower = CompactFlower<Channel, Container, ErrCause>;
+type TypedFlowerHandle = CompactHandle<Channel, Container, ErrCause>;
 
 struct EframeTokioApp {
     rt: runtime::Runtime,
@@ -39,7 +39,6 @@ struct EframeTokioApp {
     btn_label_prev: String,
     btn_label_next: String,
     net_image: NetworkImage,
-    error_msg: Message,
 }
 
 impl EframeTokioApp {
@@ -56,7 +55,6 @@ impl EframeTokioApp {
             btn_label_prev: "Fetch prev image".into(),
             btn_label_next: "Fetch next image".into(),
             net_image: Default::default(),
-            error_msg: Message::Default,
         }
     }
 
@@ -70,7 +68,7 @@ impl EframeTokioApp {
 
     async fn fetch_image(url: String, handle: &TypedFlowerHandle) -> Result<Container, IOError> {
         // Runtime panic just for testing in case.
-        // panic!("Unexpected panic at the neighbor yard!");
+        // panic!("Unexpected panic!");
 
         // Build a client
         let client = Client::builder()
@@ -98,7 +96,7 @@ impl EframeTokioApp {
                     }
 
                     // Send chunk size as download progress
-                    let progress = Message::ImageProgress(a_chunk.len());
+                    let progress = Channel::Image(a_chunk.len());
                     handle.send_async(progress).await;
                     a_chunk.into_iter().for_each(|x| {
                         image_bytes.push(x);
@@ -131,14 +129,11 @@ impl EframeTokioApp {
         self.rt.spawn(async move {
             // Don't forget to activate flower here
             handle.activate();
-            let fetch_image = Self::fetch_image(url, &handle).await;
-            // Check if result is error
-            if fetch_image.is_err() {
-                // Blocking for a while here, it's fine because we are going to set the result ASAP anyway.
-                handle.send(Message::ImageError);
+            // Start fetching
+            match Self::fetch_image(url, &handle).await {
+                Ok(container) => handle.success(container),
+                Err(e) => handle.error(ErrCause::Image(format!("{:?}", e))),
             }
-            // Set result
-            handle.set_result(fetch_image);
         });
     }
 
@@ -175,15 +170,11 @@ impl eframe::App for EframeTokioApp {
                 self.flower
                     .extract(|message| {
                         match message {
-                            Message::ImageProgress(b) => {
+                            Channel::Image(b) => {
                                 self.net_image.tmp_file_size += b;
                             }
-                            Message::DataProgress(_) => {
+                            Channel::Data(_) => {
                                 // Do stuff here if any
-                            }
-                            _ => {
-                                // Set the error message if any.
-                                self.error_msg = message;
                             }
                         }
                     })
@@ -194,30 +185,27 @@ impl eframe::App for EframeTokioApp {
                                 self.net_image.set_image(retained_image);
                                 fetch_image_finalized = true;
                             }
-                            // Handle if any
+                            // Handle Container::Data if any
                             Ok(Container::Data(_data)) => {}
-                            Err(Cause::Suppose(err)) => {
+                            Err(Compact::Suppose(err)) => {
                                 // Get specific error message.
-                                match self.error_msg {
-                                    Message::ImageError => {
-                                        self.net_image.set_error(err);
+                                match err {
+                                    ErrCause::Image(err_msg) => {
+                                        self.net_image.set_error(err_msg);
                                         fetch_image_finalized = true;
                                     }
-                                    Message::DataError => {
-                                        // Handle DataError if any.
+                                    ErrCause::Data(_err_msg) => {
+                                        // Handle if DataErr is any.
                                     }
-                                    _ => (),
                                 }
                             }
-                            // Handle stuff if tokio runtime panicked as well.
-                            Err(Cause::Panicked(err)) => {
+                            // Handle stuff if tokio runtime panicked as well,
+                            // but don't do that and stay calm is highly encouraged.
+                            Err(Compact::Panicked(err)) => {
                                 self.net_image.set_error(err);
                                 fetch_image_finalized = true;
                             }
                         }
-
-                        // Set error message to default here.
-                        self.error_msg = Message::Default;
                     });
 
                 if fetch_image_finalized {
